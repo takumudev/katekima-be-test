@@ -11,5 +11,5 @@ urlpatterns = [
     path('', include(router.urls)),
     path('purchase/<str:header_code>/details/', PurchaseDetailListCreate.as_view(), name='purchase-details'),
     path('sell/<str:header_code>/details/', SellDetailListCreate.as_view(), name='sell-details'),
-    path('report/', ReportView.as_view(), name='report'),
+    path('report/<str:item_code>/', ReportView.as_view(), name='report'),
 ]

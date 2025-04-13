@@ -84,7 +84,7 @@ class SellDetailSerializer(serializers.ModelSerializer):
             deplete_qty = min(pd.remaining_quantity, remaining_quantity)
             SellAllocation.objects.create(
                 sell_detail=sell_detail,
-                purchase_details=pd,
+                purchase_detail=pd,
                 quantity=deplete_qty
             )
             pd.remaining_quantity -= deplete_qty
