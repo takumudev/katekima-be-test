@@ -2,7 +2,7 @@ from rest_framework import viewsets, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Item, PurchaseHeader, SellHeader, PurchaseDetail, SellDetail, SellAllocation
-from .serializers import ItemSerializer, PurchaseHeaderSerializer, SellHeaderSerializer, PurchaseDetailSerializer, SellDetailSerializer, SellAllocationSerializer
+from .serializers import ItemSerializer, PurchaseHeaderSerializer, SellHeaderSerializer, PurchaseDetailSerializer, SellDetailSerializer
 from datetime import datetime
 
 class ItemViewSet(viewsets.ModelViewSet):
