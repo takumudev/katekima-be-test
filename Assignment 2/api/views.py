@@ -130,11 +130,12 @@ class ReportView(APIView):
             'item_code': item.code,
             'name': item.name,
             'unit': item.unit,
-            'transactions': [],
+            'items': [],
             'summary': {
-                'in': {'qty': 0, 'total': 0},
-                'out': {'qty': 0, 'total': 0},
-                'stock': []
+                'in_qty': 0,
+                'out_qty': 0,
+                'balance_qty': 0,
+                'balance': 0
             }
         }
 
@@ -143,69 +144,92 @@ class ReportView(APIView):
             {'qty': qty, 'price': float(pd.unit_price), 'total': float(qty * pd.unit_price)}
             for pd, qty in stock_queue if qty > 0
         ]
+        balance_qty = sum(stock['qty'] for stock in current_stock)
+        balance = sum(stock['total'] for stock in current_stock)
 
         # Process each event
         for event in events:
+            transaction = {
+                "date": event['date'].strftime('%d-%m-%Y'),
+                "description": event['description'],
+                "code": event['code'],
+                "in_qty": 0,
+                "in_price": 0,
+                "in_total": 0,
+                "out_qty": 0,
+                "out_price": 0,
+                "out_total": 0,
+                "stock_qty": [stock['qty'] for stock in current_stock],
+                "stock_price": [stock['price'] for stock in current_stock],
+                "stock_total": [stock['total'] for stock in current_stock],
+                "balance_qty": balance_qty,
+                "balance": balance
+            }
+
             if event['type'] == 'purchase':
                 pd = event['detail']
-                # Create transaction entry
-                transaction = {
-                    'date': event['date'].strftime('%Y-%m-%d'),
-                    'description': event['description'],
-                    'code': event['code'],
-                    'in': {
-                        'qty': pd.quantity,
-                        'price': float(pd.unit_price),
-                        'total': float(pd.quantity * pd.unit_price)
-                    },
-                    'out': {'qty': 0, 'price': 0, 'total': 0},
-                    'stock': current_stock + [{
-                        'qty': pd.quantity,
-                        'price': float(pd.unit_price),
-                        'total': float(pd.quantity * pd.unit_price)
-                    }]
-                }
-                report['transactions'].append(transaction)
-                # Update stock and summary
-                current_stock.append({
-                    'qty': pd.quantity,
-                    'price': float(pd.unit_price),
-                    'total': float(pd.quantity * pd.unit_price)
+                in_qty = pd.quantity
+                in_price = float(pd.unit_price)
+                in_total = float(in_qty * in_price)
+                transaction.update({
+                    "in_qty": in_qty,
+                    "in_price": in_price,
+                    "in_total": in_total
                 })
-                report['summary']['in']['qty'] += pd.quantity
-                report['summary']['in']['total'] += float(pd.quantity * pd.unit_price)
+                # Update stock
+                current_stock.append({
+                    'qty': in_qty,
+                    'price': in_price,
+                    'total': in_total
+                })
+                balance_qty += in_qty
+                balance += in_total
+                report['summary']['in_qty'] += in_qty
             
             elif event['type'] == 'sell':
                 allocation = event['allocation']
                 pd = allocation.purchase_detail
                 qty = allocation.quantity
-                # Create transaction entry
-                transaction = {
-                    'date': event['date'].strftime('%Y-%m-%d'),
-                    'description': event['description'],
-                    'code': event['code'],
-                    'in': {'qty': 0, 'price': 0, 'total': 0},
-                    'out': {
-                        'qty': qty,
-                        'price': float(pd.unit_price),
-                        'total': float(qty * pd.unit_price)
-                    },
-                    'stock': [stock for stock in current_stock if stock['qty'] > 0]
-                }
-                report['transactions'].append(transaction)
+                out_price = float(pd.unit_price)
+                out_total = float(qty * out_price)
+                transaction.update({
+                    "out_qty": qty,
+                    "out_price": out_price,
+                    "out_total": out_total
+                })
                 # Update stock: reduce or remove depleted batch
-                for stock in current_stock:
-                    if stock['price'] == float(pd.unit_price):
-                        if stock['qty'] >= qty:
+                for stock in current_stock[:]:  # Use a copy to modify while iterating
+                    if stock['price'] == out_price and stock['qty'] > 0:
+                        if stock['qty'] > qty:
                             stock['qty'] -= qty
                             stock['total'] = float(stock['qty'] * stock['price'])
+                            qty = 0
                         else:
-                            current_stock.remove(stock)
-                        break
-                # Update summary
-                report['summary']['out']['qty'] += qty
-                report['summary']['out']['total'] += float(qty * pd.unit_price)
+                            qty -= stock['qty']
+                            stock['qty'] = 0
+                            stock['total'] = 0
+                        if qty <= 0:
+                            break
+                # Remove depleted batches
+                current_stock = [stock for stock in current_stock if stock['qty'] > 0]
+                balance_qty -= allocation.quantity
+                balance -= out_total
+                report['summary']['out_qty'] += allocation.quantity
             
-        # Final stock in summary
-        report['summary']['stock'] = [stock for stock in current_stock if stock['qty'] > 0]
-        return Response(report)
+            # Update transaction with new stock state
+            transaction.update({
+                "stock_qty": [stock['qty'] for stock in current_stock],
+                "stock_price": [stock['price'] for stock in current_stock],
+                "stock_total": [stock['total'] for stock in current_stock],
+                "balance_qty": balance_qty,
+                "balance": balance
+            })
+            report['items'].append(transaction)
+
+        # Update summary
+        report['summary'].update({
+            "balance_qty": balance_qty,
+            "balance": balance
+        })
+
+        return Response({"result": report})
